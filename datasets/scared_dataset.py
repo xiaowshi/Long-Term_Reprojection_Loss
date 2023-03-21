@@ -39,9 +39,12 @@ class SCAREDRAWDataset(SCAREDDataset):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
+#         f_str = "{:010d}{}".format(frame_index, self.img_ext)
+#         image_path = os.path.join(
+#             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+        f_str = "{:06d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
-            self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
-
+            self.data_path, folder, "0{}".format(self.side_map[side]), f_str)
         return image_path
 
     def get_depth(self, folder, frame_index, side, do_flip):
