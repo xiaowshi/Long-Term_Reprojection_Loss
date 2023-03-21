@@ -322,11 +322,12 @@ class Trainer:
         """
         self.set_eval()
         try:
-            inputs = self.val_iter.next()
+            inputs = next(self.val_iter)
+#             inputs = self.val_iter.next()
         except StopIteration:
             self.val_iter = iter(self.val_loader)
             inputs = next(self.val_iter)
-            # inputs = self.val_iter.next()
+#             inputs = self.val_iter.next()
 
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
