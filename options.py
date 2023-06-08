@@ -132,16 +132,10 @@ class MonodepthOptions:
                                  help="normal or shared",
                                  default="separate_resnet",
                                  choices=["posecnn", "separate_resnet", "shared"])
-        self.parser.add_argument("--depth_encoder",
-                                 type=str,
-                                 help="depth encoder",
-                                 default="resnet",
-                                 choices=["resnet", "dpt", "vit"])
-        self.parser.add_argument("--depth_decoder",
-                                 type=str,
-                                 help="depth decoder",
-                                 default="resnet",
-                                 choices=["resnet", "dpt", "vit"])
+        self.parser.add_argument("--dpt",
+                                 help="depth encoder and decoder replace with dpt",
+                                 action="store_true")
+
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

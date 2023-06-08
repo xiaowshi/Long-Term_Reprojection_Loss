@@ -92,29 +92,25 @@ def evaluate(opt):
                                 pin_memory=True, drop_last=False)
 
         # networks
-        if opt.depth_encoder == "resnet":
-            encoder = networks.ResnetEncoder(opt.num_layers, False)
-        elif opt.depth_encoder == "dpt":
+        if opt.dpt:
             encoder =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
-        if opt.depth_decoder == "resnet":
+            depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+        else:
+            encoder = networks.ResnetEncoder(opt.num_layers, False)
             depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
-        if opt.depth_decoder == "resnet":
-            DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
-        if opt.depth_encoder == "resnet" and opt.depth_decoder == "resnet":
 
             model_dict = encoder.state_dict()
             encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
             depth_decoder.load_state_dict(torch.load(decoder_path))
-
+            print("-> Computing predictions with size {}x{}".format(
+                encoder_dict['width'], encoder_dict['height']))
+            
             encoder.cuda()
             encoder.eval()
         depth_decoder.cuda()
         depth_decoder.eval()
 
         pred_disps = []
-
-        # print("-> Computing predictions with size {}x{}".format(
-        #     encoder_dict['width'], encoder_dict['height']))
 
         with torch.no_grad():
             for data in dataloader:
@@ -126,11 +122,20 @@ def evaluate(opt):
                 # 
                 output = depth_decoder(encoder(input_color))
                 # 
-                if opt.depth_encoder == "resnet" and opt.depth_decoder == "resnet":
-                    pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                if opt.dpt:
+                    output = torch.nn.functional.interpolate(
+                        output.predicted_depth.unsqueeze(1),
+                        size=(opt.height, opt.width),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).squeeze()
+                    
+                    pred_disp, _ = disp_to_depth(output, opt.min_depth, opt.max_depth)
+
                 else:
-                    pre_disp = output
-                    print("MIN MAX of depth: ", pred_disp.min(), pred_disp.max())
+                    pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+
+                # print("MIN MAX of depth: ", pred_disp.min(), pred_disp.max())
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
 
                 if opt.post_process:
