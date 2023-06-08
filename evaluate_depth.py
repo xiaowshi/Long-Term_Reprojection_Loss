@@ -10,8 +10,12 @@ from torch.utils.data import DataLoader
 from layers import disp_to_depth
 from utils import readlines
 from options import MonodepthOptions
-import datasets
+#import datasets
+#import datasets.scared_dataset
+from datasets.scared_dataset import SCAREDRAWDataset
 import networks
+
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -65,7 +69,7 @@ def evaluate(opt):
     assert sum((opt.eval_mono, opt.eval_stereo)) == 1, \
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
-    if opt.ext_disp_to_eval is None:
+    if opt.ext_disp_to_eval is None: # no optional .npy disparities file
 
         opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
 
@@ -73,35 +77,44 @@ def evaluate(opt):
             "Cannot find a folder at {}".format(opt.load_weights_folder)
 
         print("-> Loading weights from {}".format(opt.load_weights_folder))
-
+        # files
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        # weights
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
         encoder_dict = torch.load(encoder_path)
-
-        dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
+        # dataset
+        dataset = SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
 
-        encoder = networks.ResnetEncoder(opt.num_layers, False)
-        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
+        # networks
+        if opt.depth_encoder == "resnet":
+            encoder = networks.ResnetEncoder(opt.num_layers, False)
+        elif opt.depth_encoder == "dpt":
+            encoder =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+        if opt.depth_decoder == "resnet":
+            depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
+        if opt.depth_decoder == "resnet":
+            DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+        if opt.depth_encoder == "resnet" and opt.depth_decoder == "resnet":
 
-        model_dict = encoder.state_dict()
-        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-        depth_decoder.load_state_dict(torch.load(decoder_path))
+            model_dict = encoder.state_dict()
+            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+            depth_decoder.load_state_dict(torch.load(decoder_path))
 
-        encoder.cuda()
-        encoder.eval()
+            encoder.cuda()
+            encoder.eval()
         depth_decoder.cuda()
         depth_decoder.eval()
 
         pred_disps = []
 
-        print("-> Computing predictions with size {}x{}".format(
-            encoder_dict['width'], encoder_dict['height']))
+        # print("-> Computing predictions with size {}x{}".format(
+        #     encoder_dict['width'], encoder_dict['height']))
 
         with torch.no_grad():
             for data in dataloader:
@@ -110,9 +123,14 @@ def evaluate(opt):
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
-
+                # 
                 output = depth_decoder(encoder(input_color))
-                pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                # 
+                if opt.depth_encoder == "resnet" and opt.depth_decoder == "resnet":
+                    pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                else:
+                    pre_disp = output
+                    print("MIN MAX of depth: ", pred_disp.min(), pred_disp.max())
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
 
                 if opt.post_process:
@@ -123,7 +141,7 @@ def evaluate(opt):
 
         pred_disps = np.concatenate(pred_disps)
 
-    else:
+    else: 
         # Load predictions from file
         print("-> Loading predictions from {}".format(opt.ext_disp_to_eval))
         pred_disps = np.load(opt.ext_disp_to_eval)
@@ -160,6 +178,9 @@ def evaluate(opt):
 
         print("-> No ground truth is available for the KITTI benchmark, so not evaluating. Done.")
         quit()
+
+    # elif opt.eval_split == 'endovis':
+
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
     gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
