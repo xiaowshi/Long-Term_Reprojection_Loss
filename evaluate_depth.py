@@ -102,13 +102,13 @@ def evaluate(opt):
             dataset = SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False)
-        dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
+        dataloader = DataLoader(dataset, opt.batch_size, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
 
         # networks
         if opt.dpt:
             encoder =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
-            depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+            depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large").cuda()
         else:
             encoder = networks.ResnetEncoder(opt.num_layers, False)
             depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
@@ -122,7 +122,7 @@ def evaluate(opt):
             encoder.cuda()
             encoder.eval()
         depth_decoder.cuda()
-        depth_decoder.eval()
+        # depth_decoder.eval()
 
         pred_disps = []
 
@@ -139,8 +139,8 @@ def evaluate(opt):
                 # 
                 if opt.dpt:
 
-                    encoding = encoder(input_color)
-                    output = depth_decoder(**encoding)
+                    encoding = encoder(input_color, return_tensors="pt")
+                    output = depth_decoder(encoding['pixel_values'].cuda())
                     output = torch.nn.functional.interpolate(
                         output.predicted_depth.unsqueeze(1),
                         size=(opt.height, opt.width),
