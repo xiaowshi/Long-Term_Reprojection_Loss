@@ -51,7 +51,7 @@ def export_gt_depths_kitti():
             f_str = "scene_points{:06d}.tiff".format(frame_id - 1)
             gt_depth_path = os.path.join(
                 opt.data_path,
-                folder,
+               # folder,
                 f_str)
             depth_gt = cv2.imread(gt_depth_path, 3)
             depth_gt = depth_gt[:, :, 0]
