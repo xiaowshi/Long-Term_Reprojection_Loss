@@ -13,9 +13,13 @@ from options import MonodepthOptions
 #import datasets
 #import datasets.scared_dataset
 from datasets.scared_dataset import SCAREDRAWDataset
+from datasets.scared_dataset import SCAREDNAIVEDataset
 import networks
 
+from IPython.core.debugger import set_trace
+
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
+from PIL import Image 
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -70,22 +74,32 @@ def evaluate(opt):
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
     if opt.ext_disp_to_eval is None: # no optional .npy disparities file
+        if opt.load_weights_folder is not None:
+            opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
 
-        opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
+            assert os.path.isdir(opt.load_weights_folder), \
+                "Cannot find a folder at {}".format(opt.load_weights_folder)
 
-        assert os.path.isdir(opt.load_weights_folder), \
-            "Cannot find a folder at {}".format(opt.load_weights_folder)
-
-        print("-> Loading weights from {}".format(opt.load_weights_folder))
+            print("-> Loading weights from {}".format(opt.load_weights_folder))
+            # weights
+            encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
+            decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
         # files
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
-        # weights
-        encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
-        decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
-        encoder_dict = torch.load(encoder_path)
+        if not opt.dpt and opt.load_weights_folder is not None:
+            encoder_dict = torch.load(encoder_path)
         # dataset
-        dataset = SCAREDRAWDataset(opt.data_path, filenames,
+        if opt.dpt:
+            import torchvision.transforms as transforms
+            transform_test = transforms.Compose([
+                transforms.Resize((256, 320)), 
+                transforms.Resize((640, 800)), 
+                transforms.ToTensor(),    
+            ]) 
+            dataset = SCAREDNAIVEDataset(opt.data_path, filenames, transform_test)
+        else:
+            dataset = SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
@@ -115,27 +129,30 @@ def evaluate(opt):
         with torch.no_grad():
             for data in dataloader:
                 input_color = data[("color", 0, 0)].cuda()
+                
+                if opt.dpt:
+                    input_color = [transforms.ToPILImage()(img) for img in input_color]
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
                 # 
-                output = depth_decoder(encoder(input_color))
-                # 
                 if opt.dpt:
+
+                    encoding = encoder(input_color)
+                    output = depth_decoder(**encoding)
                     output = torch.nn.functional.interpolate(
                         output.predicted_depth.unsqueeze(1),
                         size=(opt.height, opt.width),
                         mode="bicubic",
                         align_corners=False,
-                    ).squeeze()
-                    
+                    ).squeeze()                   
                     pred_disp, _ = disp_to_depth(output, opt.min_depth, opt.max_depth)
-
                 else:
+                    output = depth_decoder(encoder(input_color))
                     pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
 
-                # print("MIN MAX of depth: ", pred_disp.min(), pred_disp.max())
+                print("MIN MAX of depth: ", pred_disp.min(), pred_disp.max())
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
 
                 if opt.post_process:
@@ -143,7 +160,7 @@ def evaluate(opt):
                     pred_disp = batch_post_process_disparity(pred_disp[:N], pred_disp[N:, :, ::-1])
 
                 pred_disps.append(pred_disp)
-
+        # set_trace()
         pred_disps = np.concatenate(pred_disps)
 
     else: 
