@@ -10,6 +10,7 @@ from .mono_dataset import MonoDataset
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from PIL import Image  
+import random
 
 class SCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
@@ -41,16 +42,12 @@ class SCAREDRAWDataset(SCAREDDataset):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
-#         f_str = "{:010d}{}".format(frame_index, self.img_ext)
-#         image_path = os.path.join(
-#             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+
         f_str = "{:06d}{}".format(frame_index, self.img_ext)
-#         image_path = os.path.join(
-#             self.data_path, folder, "0{}".format(self.side_map[side]), f_str)
         image_path = os.path.join(
             self.data_path, 
-            # "0{}".format(self.side_map[side]), 
-            # folder, 
+            "02",
+            folder[0] + folder[7] + folder[9] + folder[-1],
             f_str)
         return image_path
 
@@ -59,8 +56,8 @@ class SCAREDRAWDataset(SCAREDDataset):
 
         depth_path = os.path.join(
             self.data_path,
+            "01",
             folder,
-            "image_0{}/data/groundtruth".format(self.side_map[side]),
             f_str)
 
         depth_gt = cv2.imread(depth_path, 3)
@@ -79,19 +76,42 @@ def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+            
 class SCAREDNAIVEDataset(Dataset):
-    def __init__(self, data_path, filenames, transform=None):
+    def __init__(self, data_path, filenames, transform=None, img_ext='.jpg', is_train=False):
+        # , height, width, frame_ids, num_scales, is_train=True, img_ext='.jpg', transform=None):
         self.filenames = filenames
         self.data_path = data_path
-        self.img_ext = ".jpg"
+        self.img_ext = img_ext
         self.loader = pil_loader
         self.transform = transform
 
     def __len__(self):
         return len(self.filenames)
 
-    def __getitem__(self, index):
-        inputs = {}
+    def preprocess(self, inputs, color_aug):
+        """Resize colour images to the required scales and augment if required
+
+        We create the color_aug object in advance and apply the same augmentation to all
+        images in this item. This ensures that all images input to the pose network receive the
+        same augmentation.
+        """
+        for k in list(inputs):
+            frame = inputs[k]
+            if "color" in k:
+                n, im, i = k
+                for i in range(self.num_scales):
+                    inputs[(n, im, i)] = self.resize[i](inputs[(n, im, i - 1)])
+
+        for k in list(inputs):
+            f = inputs[k]
+            if "color" in k:
+                n, im, i = k
+                inputs[(n, im, i)] = self.to_tensor(f)
+                inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+
+    def get_iamge_path(self, index):
+        # get image path
         line = self.filenames[index].split()
         folder = line[0]
 
@@ -104,17 +124,39 @@ class SCAREDNAIVEDataset(Dataset):
             side = line[2]
         else:
             side = None
-        # get image path
         f_str = "{:06d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
             self.data_path,
-            # "02",
-            # folder[0] + folder[7] + folder[9] + folder[-1],
+            "02",
+            folder[0] + folder[7] + folder[9] + folder[-1],
             f_str)
+        return f_str
+    
+    def __getitem__(self, index):
+        inputs = {}
+
+        image_path = self.get_iamge_path(index)
         inputs[("color", 0, 0)] = self.loader(image_path)
-        # inputs[("color", 0, 0)] = Image.open(image_path).convert('RGB')
+
+        do_color_aug = self.is_train and random.random() > 0.5
+        if do_color_aug:
+            color_aug = transforms.ColorJitter(
+                self.brightness, self.contrast, self.saturation, self.hue)
+        else:
+            color_aug = (lambda x: x)
+        
+        # for i in self.frame_idxs:
+        #     if i == "s":
+        #         other_side = {"r": "l", "l": "r"}[side]
+        #         inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+        #     else:
+        #         inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+
+        self.preprocess(inputs, color_aug)
+        for i in self.frame_idxs:
+            del inputs[("color", i, -1)]
+            del inputs[("color_aug", i, -1)]
 
         if self.transform:
             inputs[("color", 0, 0)] = self.transform(inputs[("color", 0, 0)])
         return inputs
-
