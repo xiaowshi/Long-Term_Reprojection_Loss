@@ -58,10 +58,11 @@ class Trainer:
             self.models["encoder"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
             
         # depth decoder
-        self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales)
         if self.opt.dpt:
             self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+        else:
+            self.models["depth"] = networks.DepthDecoder(
+            self.models["encoder"].num_ch_enc, self.opt.scales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
@@ -144,11 +145,13 @@ class Trainer:
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
         if self.opt.dpt:
             val_dataset = self.dataset(self.opt.data_path, val_filenames)
+        else:
+            val_dataset = self.dataset(
+                self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
@@ -643,13 +646,14 @@ class Trainer:
         print("loading model from folder {}".format(self.opt.load_weights_folder))
 
         for n in self.opt.models_to_load:
-            print("Loading {} weights...".format(n))
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
-            model_dict = self.models[n].state_dict()
-            pretrained_dict = torch.load(path)
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-            model_dict.update(pretrained_dict)
-            if n == "encoder" and self.opt.dpt:
+            
+            if n == "encoder" and not self.opt.dpt:
+                print("Loading {} weights...".format(n))
+                model_dict = self.models[n].state_dict()
+                pretrained_dict = torch.load(path)
+                pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+                model_dict.update(pretrained_dict)
                 self.models[n].load_state_dict(model_dict)
 
         # loading adam state
