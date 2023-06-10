@@ -1,8 +1,4 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
+# monodepth
 
 from __future__ import absolute_import, division, print_function
 
@@ -25,6 +21,7 @@ import datasets
 import networks
 from IPython import embed
 
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 
 class Trainer:
     def __init__(self, options):
@@ -51,13 +48,20 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
+        # depth encoder
         self.models["encoder"] = networks.ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained")
+                self.opt.num_layers, self.opt.weights_init == "pretrained")
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
-
+        
+        if self.opt.dpt:
+            self.models["encoder"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+            
+        # depth decoder
         self.models["depth"] = networks.DepthDecoder(
             self.models["encoder"].num_ch_enc, self.opt.scales)
+        if self.opt.dpt:
+            self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
@@ -106,14 +110,19 @@ class Trainer:
         if self.opt.load_weights_folder is not None:
             self.load_model()
 
-        print("Training model named:\n  ", self.opt.model_name)
+        if self.opt.dpt:
+            print("Training depth model named:\ndpt  ")
+        print("Training pose model named:\n  ", self.opt.model_name)
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset,
-                        "endovis": datasets.SCAREDRAWDataset}
+                        "endovis": datasets.SCAREDRAWDataset,
+                        "endovis_naive": datasets.SCAREDNAIVEDataset}
+        if self.opt.dpt:    
+            self.opt.dataset = "endovis_naive"
         self.dataset = datasets_dict[self.opt.dataset]
 
         fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
@@ -125,15 +134,21 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+        if self.opt.dpt:
+            train_dataset = self.dataset(self.opt.data_path, train_filenames, is_train=True, img_ext=img_ext)
+        else:
+            train_dataset = self.dataset(
+                self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+        if self.opt.dpt:
+            val_dataset = self.dataset(self.opt.data_path, val_filenames)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
@@ -171,14 +186,17 @@ class Trainer:
     def set_train(self):
         """Convert all models to training mode
         """
-        for m in self.models.values():
-            m.train()
+        for m in self.models.keys():
+            if m != "encoder":
+                self.models[m].train()
+        
 
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """
-        for m in self.models.values():
-            m.eval()
+        for m in self.models.keys():
+            if m != "encoder":
+                self.models[m].eval()
 
     def train(self):
         """Run the entire training pipeline
@@ -246,8 +264,18 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
-            outputs = self.models["depth"](features)
+            if self.opt.dpt:
+                encoding = self.models["encoder"](inputs[("color", 0, 0)].to(self.device), return_tensors="pt")
+                output = self.models["depth"](encoding['pixel_values'].to(self.device))
+                outputs = torch.nn.functional.interpolate(
+                        output.predicted_depth.unsqueeze(1),
+                        size=(self.opt.height, self.opt.width),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).squeeze()
+            else:
+                features = self.models["encoder"](inputs["color_aug", 0, 0])
+                outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -264,7 +292,7 @@ class Trainer:
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
-        if self.num_pose_frames == 2:
+        if self.num_pose_frames == 2: # defult
             # In this setting, we compute the pose to each source frame via a
             # separate forward pass through the pose network.
 
@@ -272,7 +300,7 @@ class Trainer:
             if self.opt.pose_model_type == "shared":
                 pose_feats = {f_i: features[f_i] for f_i in self.opt.frame_ids}
             else:
-                pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+                pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids} #default=[0, -1, 1]
 
             for f_i in self.opt.frame_ids[1:]:
                 if f_i != "s":
@@ -347,9 +375,9 @@ class Trainer:
         """
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
-            if self.opt.v1_multiscale:
+            if self.opt.v1_multiscale: 
                 source_scale = scale
-            else:
+            else: # default
                 disp = F.interpolate(
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
                 source_scale = 0
@@ -595,7 +623,7 @@ class Trainer:
         for model_name, model in self.models.items():
             save_path = os.path.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
-            if model_name == 'encoder':
+            if model_name == 'encoder' and not self.opt.dpt:
                 # save the sizes - these are needed at prediction time
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
@@ -621,7 +649,8 @@ class Trainer:
             pretrained_dict = torch.load(path)
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
-            self.models[n].load_state_dict(model_dict)
+            if n == "encoder" and self.opt.dpt:
+                self.models[n].load_state_dict(model_dict)
 
         # loading adam state
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
