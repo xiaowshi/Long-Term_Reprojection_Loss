@@ -87,17 +87,20 @@ def evaluate(opt):
         # files
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
 
-        if not opt.dpt and opt.load_weights_folder is not None:
-            encoder_dict = torch.load(encoder_path)
+        # if not opt.dpt and opt.load_weights_folder is not None:
+        encoder_dict = torch.load(encoder_path)
         # dataset
         if opt.dpt:
-            import torchvision.transforms as transforms
-            transform_test = transforms.Compose([
-                transforms.Resize((256, 320)), 
-                transforms.Resize((640, 800)), 
-                transforms.ToTensor(),    
-            ]) 
-            dataset = SCAREDNAIVEDataset(opt.data_path, filenames, transform_test)
+            # import torchvision.transforms as transforms
+            # transform_test = transforms.Compose([
+            #     transforms.Resize((256, 320)), 
+            #     transforms.Resize((640, 800)), 
+            #     transforms.ToTensor(),    
+            # ]) 
+            dataset = SCAREDNAIVEDataset(opt.data_path, filenames, 
+            # transform_test)
+                                           encoder_dict['height'], encoder_dict['width'],
+                                           [0], 4, is_train=False)
         else:
             dataset = SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
@@ -160,7 +163,6 @@ def evaluate(opt):
                     pred_disp = batch_post_process_disparity(pred_disp[:N], pred_disp[N:, :, ::-1])
 
                 pred_disps.append(pred_disp)
-        # set_trace()
         pred_disps = np.concatenate(pred_disps)
 
     else: 
