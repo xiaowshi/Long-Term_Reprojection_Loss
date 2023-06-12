@@ -20,6 +20,7 @@ import networks
 from IPython import embed
 
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
+from IPython.core.debugger import Pdb
 
 class Trainer:
     def __init__(self, options):
@@ -46,16 +47,17 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        # depth encoder
-        self.models["encoder"] = networks.ResnetEncoder(
-                self.opt.num_layers, self.opt.weights_init == "pretrained")
+        # network
+        if self.opt.dpt:
+            self.models["encoder"] = networks.ResnetEncoder(
+                    self.opt.num_layers, self.opt.weights_init == "pretrained")
+            self.models["dpt_features"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+        else:    
+            self.models["encoder"] = networks.ResnetEncoder(
+                    self.opt.num_layers, self.opt.weights_init == "pretrained")
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
-        
-        if self.opt.dpt:
-            self.models["encoder"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
             
-        # depth decoder
         if self.opt.dpt:
             self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
         else:
@@ -90,7 +92,7 @@ class Trainer:
             self.models["pose"].to(self.device)
             self.parameters_to_train += list(self.models["pose"].parameters())
 
-        if self.opt.predictive_mask:
+        if self.opt.predictive_mask: #default False
             assert self.opt.disable_automasking, \
                 "When using predictive_mask, please disable automasking with --disable_automasking"
 
@@ -110,7 +112,7 @@ class Trainer:
             self.load_model()
 
         if self.opt.dpt:
-            print("Training depth model named:\ndpt  ")
+            print("Training depth model named:\n   dpt")
         print("Training pose model named:\n  ", self.opt.model_name)
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
@@ -118,8 +120,8 @@ class Trainer:
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset,
-                        "endovis": datasets.SCAREDRAWDataset,
-                        "endovis_naive": datasets.SCAREDNAIVEDataset}
+                         "endovis": datasets.SCAREDRAWDataset,
+                         "endovis_naive": datasets.SCAREDNAIVEDataset}
         if self.opt.dpt:    
             self.opt.dataset = "endovis_naive"
         self.dataset = datasets_dict[self.opt.dataset]
@@ -133,22 +135,17 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        if self.opt.dpt:
-            train_dataset = self.dataset(self.opt.data_path, train_filenames, is_train=True, img_ext=img_ext)
-        else:
-            train_dataset = self.dataset(
-                self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+        train_dataset = self.dataset(
+            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
 
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        if self.opt.dpt:
-            val_dataset = self.dataset(self.opt.data_path, val_filenames)
-        else:
-            val_dataset = self.dataset(
-                self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+
+        val_dataset = self.dataset(
+            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
 
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
@@ -187,17 +184,17 @@ class Trainer:
     def set_train(self):
         """Convert all models to training mode
         """
-        for m in self.models.keys():
-            if m != "encoder":
-                self.models[m].train()
+        for name, model in self.models.items():
+            if name != "dpt_features":
+                model.train()
         
 
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """
-        for m in self.models.keys():
-            if m != "encoder":
-                self.models[m].eval()
+        for name, model in self.models.items():
+            if name != "dpt_features":
+                model.eval()
 
     def train(self):
         """Run the entire training pipeline
@@ -217,7 +214,6 @@ class Trainer:
 
         print("Training")
         self.set_train()
-
         for batch_idx, inputs in enumerate(self.train_loader):
 
             before_op_time = time.time()
@@ -263,17 +259,21 @@ class Trainer:
                 features[k] = [f[i] for f in all_features]
 
             outputs = self.models["depth"](features[0])
+
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.dpt:
-                encoding = self.models["encoder"](inputs[("color", 0, 0)].to(self.device), return_tensors="pt")
+                features = self.models["encoder"](inputs["color_aug", 0, 0])
+                encoding = self.models["dpt_features"](inputs[("color", 0, 0)].to(self.device), return_tensors="pt")
                 output = self.models["depth"](encoding['pixel_values'].to(self.device))
-                outputs = torch.nn.functional.interpolate(
+                output = torch.nn.functional.interpolate(
                         output.predicted_depth.unsqueeze(1),
                         size=(self.opt.height, self.opt.width),
                         mode="bicubic",
                         align_corners=False,
                     ).squeeze()
+                outputs = {('disp', 0): output.unsqueeze(1)}
+
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
                 outputs = self.models["depth"](features)
@@ -515,6 +515,7 @@ class Trainer:
 
             loss += to_optimise.mean()
 
+            # print(disp.size())
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
@@ -622,14 +623,14 @@ class Trainer:
             os.makedirs(save_folder)
 
         for model_name, model in self.models.items():
-            save_path = os.path.join(save_folder, "{}.pth".format(model_name))
-            to_save = model.state_dict()
-            if model_name == 'encoder' and not self.opt.dpt:
+            if model_name != 'dpt_features':
+                save_path = os.path.join(save_folder, "{}.pth".format(model_name))
+                to_save = model.state_dict()
                 # save the sizes - these are needed at prediction time
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
-            torch.save(to_save, save_path)
+                torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
@@ -645,14 +646,12 @@ class Trainer:
 
         for n in self.opt.models_to_load:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
-            
-            if n == "encoder" and not self.opt.dpt:
-                print("Loading {} weights...".format(n))
-                model_dict = self.models[n].state_dict()
-                pretrained_dict = torch.load(path)
-                pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-                model_dict.update(pretrained_dict)
-                self.models[n].load_state_dict(model_dict)
+            print("Loading {} weights...".format(n))
+            model_dict = self.models[n].state_dict()
+            pretrained_dict = torch.load(path)
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+            model_dict.update(pretrained_dict)
+            self.models[n].load_state_dict(model_dict)
 
         # loading adam state
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
