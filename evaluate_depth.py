@@ -20,6 +20,7 @@ from IPython.core.debugger import set_trace
 
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from PIL import Image 
+import torchvision.transforms as transforms
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -73,6 +74,7 @@ def evaluate(opt):
     assert sum((opt.eval_mono, opt.eval_stereo)) == 1, \
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
+    # weights dict
     if opt.ext_disp_to_eval is None: # no optional .npy disparities file
         if opt.load_weights_folder is not None:
             opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
@@ -84,22 +86,17 @@ def evaluate(opt):
             # weights
             encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
             decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
+            if opt.dpt:
+                decoder_dict = torch.load(decoder_path)
+            else:
+                encoder_dict = torch.load(encoder_path)
         # files
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
 
-        # if not opt.dpt and opt.load_weights_folder is not None:
-        encoder_dict = torch.load(encoder_path)
         # dataset
         if opt.dpt:
-            # import torchvision.transforms as transforms
-            # transform_test = transforms.Compose([
-            #     transforms.Resize((256, 320)), 
-            #     transforms.Resize((640, 800)), 
-            #     transforms.ToTensor(),    
-            # ]) 
             dataset = SCAREDNAIVEDataset(opt.data_path, filenames, 
-            # transform_test)
-                                           encoder_dict['height'], encoder_dict['width'],
+                                           decoder_dict['height'], decoder_dict['width'],
                                            [0], 4, is_train=False)
         else:
             dataset = SCAREDRAWDataset(opt.data_path, filenames,
@@ -110,14 +107,15 @@ def evaluate(opt):
 
         # networks
         if opt.dpt:
-            encoder =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+            extractor =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
             depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large").cuda()
+            depth_decoder.load_state_dict({k: v for k, v in decoder_dict.items() if k in depth_decoder.state_dict()})
+            print("-> Computing predictions with size {}x{}".format(
+                decoder_dict['width'], decoder_dict['height']))
         else:
             encoder = networks.ResnetEncoder(opt.num_layers, False)
             depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
-
-            model_dict = encoder.state_dict()
-            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in encoder.state_dict()})
             depth_decoder.load_state_dict(torch.load(decoder_path))
             print("-> Computing predictions with size {}x{}".format(
                 encoder_dict['width'], encoder_dict['height']))
@@ -125,7 +123,7 @@ def evaluate(opt):
             encoder.cuda()
             encoder.eval()
         depth_decoder.cuda()
-        # depth_decoder.eval()
+        depth_decoder.eval()
 
         pred_disps = []
 
@@ -142,7 +140,7 @@ def evaluate(opt):
                 # 
                 if opt.dpt:
 
-                    encoding = encoder(input_color, return_tensors="pt")
+                    encoding = extractor(input_color, return_tensors="pt")
                     output = depth_decoder(encoding['pixel_values'].cuda())
                     output = torch.nn.functional.interpolate(
                         output.predicted_depth.unsqueeze(1),
