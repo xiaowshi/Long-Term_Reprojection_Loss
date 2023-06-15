@@ -22,16 +22,18 @@ import networks
 from layers import disp_to_depth
 from utils import download_model_if_doesnt_exist
 from evaluate_depth import STEREO_SCALE_FACTOR
-
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Simple testing funtion for Monodepthv2 models.')
-
+    parser.add_argument("--dpt",
+                        help="depth encoder and decoder replace with dpt",
+                        action="store_true")
     parser.add_argument('--image_path', type=str,
                         help='path to a test image or folder of images', required=True)
     parser.add_argument('--model_name', type=str,
-                        help='path to a pretrained model to use', required=True)
+                        help='path to a pretrained model to use', required=False)
     parser.add_argument('--ext', type=str,
                         help='image extension to search for in folder', default="jpg")
     parser.add_argument("--no_cuda",
@@ -67,25 +69,27 @@ def test_simple(args):
     depth_decoder_path = os.path.join(model_path, "depth.pth")
 
     # LOADING PRETRAINED MODEL
-    print("   Loading pretrained encoder")
-    encoder = networks.ResnetEncoder(18, False)
-    loaded_dict_enc = torch.load(encoder_path, map_location=device)
+    if args.dpt:
+        extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+        depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+    else:
+        print("   Loading pretrained encoder")
+        encoder = networks.ResnetEncoder(18, False)
+        loaded_dict_enc = torch.load(encoder_path, map_location=device)
 
-    # extract the height and width of image that this model was trained with
-    feed_height = loaded_dict_enc['height']
-    feed_width = loaded_dict_enc['width']
-    filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
-    encoder.load_state_dict(filtered_dict_enc)
-    encoder.to(device)
-    encoder.eval()
+        # extract the height and width of image that this model was trained with
+        feed_height = loaded_dict_enc['height']
+        feed_width = loaded_dict_enc['width']
+        filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
+        encoder.load_state_dict(filtered_dict_enc)
+        encoder.to(device)
+        encoder.eval()
 
+        depth_decoder = networks.DepthDecoder(
+            num_ch_enc=encoder.num_ch_enc, scales=range(4))
     print("   Loading pretrained decoder")
-    depth_decoder = networks.DepthDecoder(
-        num_ch_enc=encoder.num_ch_enc, scales=range(4))
-
     loaded_dict = torch.load(depth_decoder_path, map_location=device)
-    depth_decoder.load_state_dict(loaded_dict)
-
+    depth_decoder.load_state_dict({k:v for k,v in loaded_dict.items() if k in depth_decoder.state_dict()})
     depth_decoder.to(device)
     depth_decoder.eval()
 
@@ -107,22 +111,36 @@ def test_simple(args):
     with torch.no_grad():
         for idx, image_path in enumerate(paths):
 
-            if image_path.endswith("_disp.jpg"):
+            if image_path.endswith("_disp.jpg") or image_path.endswith(".tiff"):
                 # don't try to predict disparity for a disparity image!
                 continue
 
             # Load image and preprocess
             input_image = pil.open(image_path).convert('RGB')
             original_width, original_height = input_image.size
-            input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
-            input_image = transforms.ToTensor()(input_image).unsqueeze(0)
+            # input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
+            if not args.dpt:
+                input_image = transforms.ToTensor()(input_image).unsqueeze(0)
 
             # PREDICTION
-            input_image = input_image.to(device)
-            features = encoder(input_image)
-            outputs = depth_decoder(features)
+            if args.dpt:
+                encoding = extractor(input_image, return_tensors="pt")
+                output = depth_decoder(encoding['pixel_values'].to(device))
+                output = torch.nn.functional.interpolate(
+                          output.predicted_depth.unsqueeze(1),
+                          size=(original_height, original_width),
+                          mode="bicubic",
+                          align_corners=False,
+                )# torch.Size([1, 1, 256, 320]) #.squeeze() # torch.Size([256, 320])
+                print(output.size())
+                outputs = {('disp', 0): output}
+            else:
+                input_image = input_image.to(device)
+                features = encoder(input_image)
+                outputs = depth_decoder(features)
 
             disp = outputs[("disp", 0)]
+            print(disp.size(), original_height, original_width)
             disp_resized = torch.nn.functional.interpolate(
                 disp, (original_height, original_width), mode="bilinear", align_corners=False)
 
