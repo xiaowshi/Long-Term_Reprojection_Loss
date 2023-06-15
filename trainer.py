@@ -49,18 +49,13 @@ class Trainer:
 
         # network
         if self.opt.dpt:
-            self.models["encoder"] = networks.ResnetEncoder(
-                    self.opt.num_layers, self.opt.weights_init == "pretrained")
             self.models["dpt_features"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
+            self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
         else:    
             self.models["encoder"] = networks.ResnetEncoder(
                     self.opt.num_layers, self.opt.weights_init == "pretrained")
-        self.models["encoder"].to(self.device)
-        self.parameters_to_train += list(self.models["encoder"].parameters())
-            
-        if self.opt.dpt:
-            self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
-        else:
+            self.models["encoder"].to(self.device)
+            self.parameters_to_train += list(self.models["encoder"].parameters())
             self.models["depth"] = networks.DepthDecoder(
             self.models["encoder"].num_ch_enc, self.opt.scales)
         self.models["depth"].to(self.device)
@@ -263,7 +258,7 @@ class Trainer:
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.dpt:
-                features = self.models["encoder"](inputs["color_aug", 0, 0])
+                features = {} # no features needed for separate pose network
                 encoding = self.models["dpt_features"](inputs[("color", 0, 0)].to(self.device), return_tensors="pt")
                 output = self.models["depth"](encoding['pixel_values'].to(self.device))
                 output = torch.nn.functional.interpolate(
@@ -273,7 +268,7 @@ class Trainer:
                         align_corners=False,
                     ).squeeze()
                 outputs = {('disp', 0): output.unsqueeze(1)}
-
+                
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
                 outputs = self.models["depth"](features)
