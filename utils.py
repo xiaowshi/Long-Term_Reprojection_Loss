@@ -96,19 +96,20 @@ def download_model_if_doesnt_exist(model_name):
 
     # see if we have the model already downloaded...
     if not os.path.exists(os.path.join(model_path, "encoder.pth")):
+        
+        if model_name in download_paths.keys():
+            model_url, required_md5checksum = download_paths[model_name]
 
-        model_url, required_md5checksum = download_paths[model_name]
+            if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
+                print("-> Downloading pretrained model to {}".format(model_path + ".zip"))
+                urllib.request.urlretrieve(model_url, model_path + ".zip")
 
-        if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
-            print("-> Downloading pretrained model to {}".format(model_path + ".zip"))
-            urllib.request.urlretrieve(model_url, model_path + ".zip")
+            if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
+                print("   Failed to download a file which matches the checksum - quitting")
+                quit()
 
-        if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
-            print("   Failed to download a file which matches the checksum - quitting")
-            quit()
+            print("   Unzipping model...")
+            with zipfile.ZipFile(model_path + ".zip", 'r') as f:
+                f.extractall(model_path)
 
-        print("   Unzipping model...")
-        with zipfile.ZipFile(model_path + ".zip", 'r') as f:
-            f.extractall(model_path)
-
-        print("   Model unzipped to {}".format(model_path))
+            print("   Model unzipped to {}".format(model_path))
