@@ -50,8 +50,8 @@ def parse_args():
 def test_simple(args):
     """Function to predict for a single image or folder of images
     """
-    assert args.model_name is not None, \
-        "You must specify the --model_name parameter; see README.md for an example"
+    # assert args.model_name is not None, \
+    #     "You must specify the --model_name parameter; see README.md for an example"
 
     if torch.cuda.is_available() and not args.no_cuda:
         device = torch.device("cuda")
@@ -61,12 +61,12 @@ def test_simple(args):
     if args.pred_metric_depth and "stereo" not in args.model_name:
         print("Warning: The --pred_metric_depth flag only makes sense for stereo-trained KITTI "
               "models. For mono-trained models, output depths will not in metric space.")
-
-    download_model_if_doesnt_exist(args.model_name)
-    model_path = os.path.join("models", args.model_name)
-    print("-> Loading model from ", model_path)
-    encoder_path = os.path.join(model_path, "encoder.pth")
-    depth_decoder_path = os.path.join(model_path, "depth.pth")
+    if args.model_name is not None:
+        download_model_if_doesnt_exist(args.model_name)
+        model_path = os.path.join("models", args.model_name)
+        print("-> Loading model from ", model_path)
+        encoder_path = os.path.join(model_path, "encoder.pth")
+        depth_decoder_path = os.path.join(model_path, "depth.pth")
 
     # LOADING PRETRAINED MODEL
     if args.dpt:
@@ -87,11 +87,12 @@ def test_simple(args):
 
         depth_decoder = networks.DepthDecoder(
             num_ch_enc=encoder.num_ch_enc, scales=range(4))
-    print("   Loading pretrained decoder")
-    loaded_dict = torch.load(depth_decoder_path, map_location=device)
-    depth_decoder.load_state_dict({k:v for k,v in loaded_dict.items() if k in depth_decoder.state_dict()})
-    depth_decoder.to(device)
-    depth_decoder.eval()
+    if args.model_name is not None:
+        print("   Loading pretrained decoder")
+        loaded_dict = torch.load(depth_decoder_path, map_location=device)
+        depth_decoder.load_state_dict({k:v for k,v in loaded_dict.items() if k in depth_decoder.state_dict()})
+        depth_decoder.to(device)
+        depth_decoder.eval()
 
     # FINDING INPUT IMAGES
     if os.path.isfile(args.image_path):
@@ -111,7 +112,7 @@ def test_simple(args):
     with torch.no_grad():
         for idx, image_path in enumerate(paths):
 
-            if image_path.endswith("_disp.jpg") or image_path.endswith(".tiff"):
+            if image_path.endswith("_disp.jpg") or image_path.endswith(".tiff") or image_path.endswith(".npy"):
                 # don't try to predict disparity for a disparity image!
                 continue
 
