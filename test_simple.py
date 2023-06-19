@@ -141,7 +141,7 @@ def test_simple(args):
                 outputs = depth_decoder(features)
 
             disp = outputs[("disp", 0)]
-            print(disp.size(), original_height, original_width)
+            # print(disp.size(), original_height, original_width)
             disp_resized = torch.nn.functional.interpolate(
                 disp, (original_height, original_width), mode="bilinear", align_corners=False)
 
