@@ -24,8 +24,9 @@ def export_gt_depths_SCARED():
     opt = parser.parse_args()
 
     split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
-    lines = readlines(os.path.join(split_folder, "test_files.txt"))
-    print("Exporting ground truth depths for {}".format(opt.split))
+    lines = readlines(os.path.join(split_folder, "test_files_sequence2.txt"))
+    # lines = readlines("/content/test_files_original.txt")
+    print("Exporting {} ground truth poses for {}".format(len(lines), opt.split))
 
     gt_Ts = []
     for line in lines:
@@ -37,14 +38,17 @@ def export_gt_depths_SCARED():
         f_str_1 = "frame_data{:06d}.json".format(frame_id)
         path_0 = os.path.join(
                 opt.data_path,
-                folder,
-                "image_02/data/frame_data",
+                # folder,
+                # "image_02/data/frame_data",
+                "{}_frame_data".format(folder[0] + folder[7] + folder[9] + folder[-1]),
                 f_str_0)
         path_1 = os.path.join(
                 opt.data_path,
-                folder,
-                "image_02/data/frame_data",
+                # folder,
+                # "image_02/data/frame_data",
+                "{}_frame_data".format(folder[0] + folder[7] + folder[9] + folder[-1]), 
                 f_str_1)
+        
         with open(path_0, 'r') as path0:
             data_0 = json.load(path0)
         with open(path_1,'r') as path1:
