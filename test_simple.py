@@ -132,16 +132,14 @@ def test_simple(args):
                           size=(original_height, original_width),
                           mode="bicubic",
                           align_corners=False,
-                )# torch.Size([1, 1, 256, 320]) #.squeeze() # torch.Size([256, 320])
-                print(output.size())
+                )#.squeeze() # torch.Size([256, 320]) print(output.size())# torch.Size([1, 1, 1024, 1280])
                 outputs = {('disp', 0): output}
             else:
                 input_image = input_image.to(device)
                 features = encoder(input_image)
                 outputs = depth_decoder(features)
-
             disp = outputs[("disp", 0)]
-            # print(disp.size(), original_height, original_width)
+            print("   disp size max min: ", disp.size(), disp.max(), disp.min())
             disp_resized = torch.nn.functional.interpolate(
                 disp, (original_height, original_width), mode="bilinear", align_corners=False)
 
@@ -170,7 +168,7 @@ def test_simple(args):
             print("   Processed {:d} of {:d} images - saved predictions to:".format(
                 idx + 1, len(paths)))
             print("   - {}".format(name_dest_im))
-            print("   - {}".format(name_dest_npy))
+            # print("   - {}".format(name_dest_npy))
 
     print('-> Done!')
 
