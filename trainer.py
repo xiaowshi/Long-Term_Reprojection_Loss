@@ -19,8 +19,9 @@ import datasets
 import networks
 from IPython import embed
 
-from transformers import DPTFeatureExtractor, DPTForDepthEstimation
+from transformers import DPTFeatureExtractor#, DPTForDepthEstimation
 from IPython.core.debugger import Pdb
+from torch import nn
 
 class Trainer:
     def __init__(self, options):
@@ -50,7 +51,8 @@ class Trainer:
         # network
         if self.opt.dpt:
             self.models["dpt_features"] = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
-            self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+            self.models["depth"] = networks.DPT_SIGMOID()
+            # self.models["depth"] = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
         else:    
             self.models["encoder"] = networks.ResnetEncoder(
                     self.opt.num_layers, self.opt.weights_init == "pretrained")
@@ -69,7 +71,7 @@ class Trainer:
                     num_input_images=self.num_pose_frames)
 
                 self.models["pose_encoder"].to(self.device)
-                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
+                # self.parameters_to_train += list(self.models["pose_encoder"].parameters())
 
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["pose_encoder"].num_ch_enc,
@@ -85,7 +87,7 @@ class Trainer:
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
             self.models["pose"].to(self.device)
-            self.parameters_to_train += list(self.models["pose"].parameters())
+            # self.parameters_to_train += list(self.models["pose"].parameters())
 
         if self.opt.predictive_mask: #default False
             assert self.opt.disable_automasking, \
@@ -215,6 +217,10 @@ class Trainer:
 
             outputs, losses = self.process_batch(inputs)
 
+            if batch_idx == 0:
+                np.save("outputs_{}.npy".format(self.epoch), outputs)
+                np.save("inputs_{}.npy".format(self.epoch), inputs)
+
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
             self.model_optimizer.step()
@@ -261,13 +267,15 @@ class Trainer:
                 features = {} # no features needed for separate pose network
                 encoding = self.models["dpt_features"](inputs[("color", 0, 0)].to(self.device), return_tensors="pt")
                 output = self.models["depth"](encoding['pixel_values'].to(self.device))
-                output = torch.nn.functional.interpolate(
-                        output.predicted_depth.unsqueeze(1),
+                interpolated = torch.nn.functional.interpolate(
+                        # output.predicted_depth.unsqueeze(1),
+                        output.unsqueeze(1),
                         size=(self.opt.height, self.opt.width),
                         mode="bicubic",
                         align_corners=False,
-                    ).squeeze()
-                outputs = {('disp', 0): output.unsqueeze(1)}
+                    ).squeeze().unsqueeze(1)
+                # interpolated = nn.Sigmoid()(interpolated)
+                outputs = {('disp', 0): interpolated}
                 
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
@@ -378,9 +386,13 @@ class Trainer:
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
-            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            scaled_disp, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
-            outputs[("depth", 0, scale)] = depth
+            if self.opt.dpt:
+                outputs[("depth", 0, scale)] = scaled_disp
+                depth = scaled_disp
+            else:
+                outputs[("depth", 0, scale)] = depth
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
@@ -390,7 +402,7 @@ class Trainer:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
                 # from the authors of https://arxiv.org/abs/1712.00175
-                if self.opt.pose_model_type == "posecnn":
+                if self.opt.pose_model_type == "posecnn":# not default
 
                     axisangle = outputs[("axisangle", 0, frame_id)]
                     translation = outputs[("translation", 0, frame_id)]
@@ -643,16 +655,16 @@ class Trainer:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             print("Loading {} weights...".format(n))
             model_dict = self.models[n].state_dict()
-            pretrained_dict = torch.load(path)
+            pretrained_dict = torch.load(path, map_location=self.device)
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
-
-        # loading adam state
-        optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
-        if os.path.isfile(optimizer_load_path):
-            print("Loading Adam weights")
-            optimizer_dict = torch.load(optimizer_load_path)
-            self.model_optimizer.load_state_dict(optimizer_dict)
-        else:
-            print("Cannot find Adam weights so Adam is randomly initialized")
+        if not self.opt.dpt:
+            # loading adam state
+            optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
+            if os.path.isfile(optimizer_load_path):
+                print("Loading Adam weights")
+                optimizer_dict = torch.load(optimizer_load_path, map_location=self.device)
+                self.model_optimizer.load_state_dict(optimizer_dict)
+            else:
+                print("Cannot find Adam weights so Adam is randomly initialized")
