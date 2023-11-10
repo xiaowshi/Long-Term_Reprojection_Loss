@@ -40,8 +40,8 @@ CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_p
 ```
 
 <p float="left">
-<img src="assets/img/input.gif" height="200">
-<img src="assets/img/depth-min.gif" height="200">
+<img src="assets/img/input.gif" width="200"/>
+<img src="assets/img/depth-min.gif" width="200"/>
 </p>
 
 ## Colab Demos
