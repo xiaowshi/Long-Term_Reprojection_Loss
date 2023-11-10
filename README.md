@@ -1,4 +1,4 @@
-#### Pipeline
+## Pipeline
 <p align="center">
 <img src='assets/img/SL.png' width=600/> 
 </p>
@@ -31,6 +31,10 @@ CUDA_VISIBLE_DEVICES=1 python evaluate_pose.py --data_path <path/to/SCARED/> --e
 ```
 
 ## Testing
+| Model        | Abs Rel | Sq Rel | RMSE | RMSE log | Link |
+| ------------ | ---------- | ------ | --------- | ---- | ---- |
+| Results | 0.071 | 0.596 | 5.608 | 0.095 | [google drive](https://drive.google.com/file/d/1r6QRf7ZGconNBuBit9CK3Rr-3slQ9toq/view?usp=sharing)| 
+
 ```shell
 CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_path <image_path>
 ```
