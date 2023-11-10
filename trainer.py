@@ -3,7 +3,7 @@ from __future__ import absolute_import, division, print_function
 import time
 import json
 import datasets
-import SAM_AF_SfM.networks as networks
+import networks
 import numpy as np
 import torch.optim as optim
 import torch.nn as nn
