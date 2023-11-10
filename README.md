@@ -39,12 +39,14 @@ CUDA_VISIBLE_DEVICES=1 python evaluate_pose.py --data_path <path/to/SCARED/> --e
 CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_path <image_path>
 ```
 
-<p float="left">
-<img src="assets/img/input.gif" width="200"/>
-<img src="assets/img/depth-min.gif" width="200"/>
-</p>
+
 
 ## Colab Demos
 
 - [Colab 1: Dataloader] (data_preprocess.ipynb): Visualise output of the dataloader.
 - [Colab 2: Evaluation] (depth_prediction_example.ipynb): Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
+
+<p float="left">
+<img src="assets/img/input-min.gif" width="200"/>
+<img src="assets/img/depth-min.gif" width="200"/>
+</p>
