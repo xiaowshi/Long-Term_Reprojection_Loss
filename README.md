@@ -7,8 +7,8 @@
 torchvision 0.12.0, CUDA 10.2, tensorboardX 1.4 
 
 If you're using older version of torchvision, you need to: 
-- add 'align_corners=True' to 'F.interpolate' and 'F.grid_sample' when you train the network, to get a good camera trajectory.
-- replace transforms.ColorJitter.get_params() with transforms.ColorJitter().
+- be careful with `align_corners=True` using `F.interpolate` and `F.grid_sample` to garentee a good camera trajectory, as these methods has been changed to use `align_corners=False` by default in later version.
+- replace `transforms.ColorJitter()` with `transforms.ColorJitter.get_params()`.
 
 ## Dataset
 The dataset is available on the [SCARED official website](https://endovissub2019-scared.grand-challenge.org).
@@ -21,7 +21,7 @@ ffmpeg -i /path/to/crop_rgb.mp4 %6d.jpg
 
 ## Training
 ```shell
-CUDA_VISIBLE_DEVICES=1 python train.py --data_path <path/to/SCARED/> --log_dir <path/to/save/weights>  --batch_size 20 --frames -2 -1 0 1 2
+CUDA_VISIBLE_DEVICES=1 python train.py --data_path <path/to/SCARED/> --log_dir <path/to/save/weights>  --batch_size 20 --frames_ids -2 -1 0 1 2
 ```
 
 ## Validation
@@ -40,11 +40,11 @@ CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_p
 ```
 
 <p float="left">
-<img src="assets/img/input.gif" height="250">
-<img src="assets/img/depth-min.gif" height="250">
+<img src="assets/img/input.gif" height="200">
+<img src="assets/img/depth-min.gif" height="200">
 </p>
 
 ## Colab Demos
 
-- [Colab 1: Dataloader] (https://colab.research.google.com/drive/18TyEVJRmUQJ3Jd-Rc9bOQf3mgVHYLv08?usp=sharing): Visualise output of the dataloader.
-- [Colab 2: Evaluation] (https://colab.research.google.com/drive/1q7y_f95LhsG40iXEFeQ98sG1Opd-85F4?usp=sharing): Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
+- [Colab 1: Dataloader] (data_preprocess.ipynb): Visualise output of the dataloader.
+- [Colab 2: Evaluation] (depth_prediction_example.ipynb): Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
