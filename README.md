@@ -43,3 +43,8 @@ CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_p
 <img src="assets/img/input.gif" height="250">
 <img src="assets/img/depth-min.gif" height="250">
 </p>
+
+## Colab Demos
+
+- [Colab 1: Dataloader] (https://colab.research.google.com/drive/18TyEVJRmUQJ3Jd-Rc9bOQf3mgVHYLv08?usp=sharing): Visualise output of the dataloader.
+- [Colab 2: Evaluation] (https://colab.research.google.com/drive/1q7y_f95LhsG40iXEFeQ98sG1Opd-85F4?usp=sharing): Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
