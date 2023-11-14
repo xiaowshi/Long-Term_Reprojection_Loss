@@ -50,3 +50,7 @@ CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_p
 <img src="assets/img/input-min.gif" width="200"/>
 <img src="assets/img/depth-min.gif" width="200"/>
 </p>
+
+## Acknowledgement
+
+Our code is built on top of the implementation of [Monodepth2](https://github.com/nianticlabs/monodepth2).
