@@ -10,17 +10,9 @@ from torch.utils.data import DataLoader
 from layers import disp_to_depth
 from utils import readlines
 from options import MonodepthOptions
-#import datasets
-#import datasets.scared_dataset
-from datasets.scared_dataset import SCAREDRAWDataset
-from datasets.scared_dataset import SCAREDNAIVEDataset
+import datasets
+# import SAM_AF_SfM.networks as networks
 import networks
-
-# from IPython.core.debugger import set_trace
-
-from transformers import DPTFeatureExtractor, DPTForDepthEstimation
-from PIL import Image 
-import torchvision.transforms as transforms
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -71,99 +63,60 @@ def evaluate(opt):
     MIN_DEPTH = 1e-3
     MAX_DEPTH = 150
 
-    if torch.cuda.is_available() and not opt.no_cuda:
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-
     assert sum((opt.eval_mono, opt.eval_stereo)) == 1, \
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
-    # weights dict
-    if opt.ext_disp_to_eval is None: # default: no optional .npy disparities file
-        if opt.load_weights_folder is not None:
-            opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
+    if opt.ext_disp_to_eval is None:
 
-            assert os.path.isdir(opt.load_weights_folder), \
-                "Cannot find a folder at {}".format(opt.load_weights_folder)
+        opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
 
-            print("-> Loading weights from {}".format(opt.load_weights_folder))
-            # weights
-            encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
-            decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
-            if not opt.dpt:
-                encoder_dict = torch.load(encoder_path, map_location=device)
-            decoder_dict = torch.load(decoder_path, map_location=device)
-        # files
+        assert os.path.isdir(opt.load_weights_folder), \
+            "Cannot find a folder at {}".format(opt.load_weights_folder)
+
+        print("-> Loading weights from {}".format(opt.load_weights_folder))
+
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
+        decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
-        # dataset
-        if opt.dpt:
-            dataset = SCAREDNAIVEDataset(opt.data_path, filenames, 
-                                           decoder_dict['height'], decoder_dict['width'],# 
-                                           [0], 4, is_train=False)
-        else:
-            dataset = SCAREDRAWDataset(opt.data_path, filenames,
+        encoder_dict = torch.load(encoder_path)
+
+        dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False)# frame_idx=[0], scales=4
-        dataloader = DataLoader(dataset, opt.batch_size, shuffle=False, num_workers=opt.num_workers,
+                                           [0], 4, is_train=False)
+        dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
+        print("total samples: ",len(dataset))
+        print("batch size: ",opt.batch_size)
+        print("number of batch / epoch: ", len(dataloader))
+        encoder = networks.ResnetEncoder(opt.num_layers, False)
+        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
 
-        # networks
-        if opt.dpt:
-            extractor =  DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
-            depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large").to(device)
-            depth_decoder.load_state_dict({k: v for k, v in decoder_dict.items() if k in depth_decoder.state_dict()})
-            print("-> Computing dpt predictions with size {}x{} hxw {} {}".format(
-                decoder_dict['width'], decoder_dict['height'], opt.height, opt.width))
-        else:
-            encoder = networks.ResnetEncoder(opt.num_layers, False)
-            depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
-            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in encoder.state_dict()})
-            depth_decoder.load_state_dict(decoder_dict)
-            print("-> Computing monodepth predictions with size {}x{}".format(
-                encoder_dict['width'], encoder_dict['height']))
-            
-            encoder.to(device) 
-            encoder.eval()
-        depth_decoder.to(device)
+        model_dict = encoder.state_dict()
+        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+        depth_decoder.load_state_dict(torch.load(decoder_path))
+
+        encoder.cuda()
+        encoder.eval()
+        depth_decoder.cuda()
         depth_decoder.eval()
 
         pred_disps = []
 
+        print("-> Computing predictions with size {}x{}".format(
+            encoder_dict['width'], encoder_dict['height']))
+
         with torch.no_grad():
-            i = 0
             for data in dataloader:
-                input_color = data[("color", 0, 0)].to(device)
-                
-                if opt.dpt:
-                    input_color = [transforms.ToPILImage()(img) for img in input_color]
+                input_color = data[("color", 0, 0)].cuda()
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
-                # 
-                if opt.dpt:
 
-                    encoding = extractor(input_color, return_tensors="pt")
-
-                    output = depth_decoder(encoding['pixel_values'].to(device))
-                    output = torch.nn.functional.interpolate(
-                        output.predicted_depth.unsqueeze(1),
-                        size=(opt.height, opt.width),
-                        mode="bicubic",
-                        align_corners=False,
-                    )#.squeeze() 
-                    # default 0.1,100
-                    pred_disp, _ = disp_to_depth(output, opt.min_depth, opt.max_depth)
-                    print(pred_disp.size())     
-                else:
-                    output = depth_decoder(encoder(input_color))
-                    pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
-
-                print("   MIN MAX of depth: ", pred_disp.min(), pred_disp.max(),pred_disp.shape)
-                pred_disp = pred_disp.cpu()[:, 0].numpy()# [batch, 1, 256, 320] -> [batch, 256, 320]
-                print("   MIN MAX of depth: ", pred_disp.min(), pred_disp.max(),pred_disp.shape)
+                output = depth_decoder(encoder(input_color))
+                pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                pred_disp = pred_disp.cpu()[:, 0].numpy()
 
                 if opt.post_process:
                     N = pred_disp.shape[0] // 2
@@ -173,7 +126,7 @@ def evaluate(opt):
 
         pred_disps = np.concatenate(pred_disps)
 
-    else: # not default
+    else:
         # Load predictions from file
         print("-> Loading predictions from {}".format(opt.ext_disp_to_eval))
         pred_disps = np.load(opt.ext_disp_to_eval)
@@ -210,7 +163,6 @@ def evaluate(opt):
 
         print("-> No ground truth is available for the KITTI benchmark, so not evaluating. Done.")
         quit()
-
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
     gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
@@ -263,7 +215,7 @@ def evaluate(opt):
 
         errors.append(compute_errors(gt_depth, pred_depth))
 
-    if not opt.disable_median_scaling: 
+    if not opt.disable_median_scaling:
         ratios = np.array(ratios)
         med = np.median(ratios)
         print(" Scaling ratios | med: {:0.3f} | std: {:0.3f}".format(med, np.std(ratios / med)))
