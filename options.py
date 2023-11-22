@@ -1,9 +1,3 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
-
 from __future__ import absolute_import, division, print_function
 
 import os
@@ -20,7 +14,7 @@ class MonodepthOptions:
         self.parser.add_argument("--data_path",
                                  type=str,
                                  help="path to the training data",
-                                 default=os.path.join(file_dir, "kitti_data"))
+                                 default=os.path.join(file_dir, "endovis_data"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
@@ -34,8 +28,8 @@ class MonodepthOptions:
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
-                                 choices=["eigen_zhou", "eigen_full", "odom", "benchmark", "endovis"],
-                                 default="eigen_zhou")
+                                 choices=["endovis", "eigen_zhou", "eigen_full", "odom", "benchmark"],
+                                 default="endovis")
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",
@@ -44,23 +38,47 @@ class MonodepthOptions:
         self.parser.add_argument("--dataset",
                                  type=str,
                                  help="dataset to train on",
-                                 default="kitti",
-                                 choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test", "endovis"])
+                                 default="endovis",
+                                 choices=["endovis", "kitti", "kitti_odom", "kitti_depth", "kitti_test"])
         self.parser.add_argument("--png",
                                  help="if set, trains from raw KITTI png files (instead of jpgs)",
                                  action="store_true")
         self.parser.add_argument("--height",
                                  type=int,
                                  help="input image height",
-                                 default=192)
+                                 default=256)
         self.parser.add_argument("--width",
                                  type=int,
                                  help="input image width",
-                                 default=640)
+                                 default=320)
         self.parser.add_argument("--disparity_smoothness",
                                  type=float,
                                  help="disparity smoothness weight",
                                  default=1e-3)
+        self.parser.add_argument("--position_smoothness",
+                                 type=float,
+                                 help="registration smoothness weight",
+                                 default=1e-3)
+        self.parser.add_argument("--consistency_constraint",
+                                 type=float,
+                                 help="consistency constraint weight",
+                                 default=0.01)
+        self.parser.add_argument("--epipolar_constraint",
+                                 type=float,
+                                 help="epipolar constraint weight",
+                                 default=0.01)
+        self.parser.add_argument("--geometry_constraint",
+                                 type=float,
+                                 help="geometry constraint weight",
+                                 default=0.01)
+        self.parser.add_argument("--transform_constraint",
+                                 type=float,
+                                 help="transform constraint weight",
+                                 default=0.01)
+        self.parser.add_argument("--transform_smoothness",
+                                 type=float,
+                                 help="transform smoothness weight",
+                                 default=0.01)
         self.parser.add_argument("--scales",
                                  nargs="+",
                                  type=int,
@@ -73,7 +91,7 @@ class MonodepthOptions:
         self.parser.add_argument("--max_depth",
                                  type=float,
                                  help="maximum depth",
-                                 default=100.0)
+                                 default=150.0)
         self.parser.add_argument("--use_stereo",
                                  help="if set, uses stereo pair for training",
                                  action="store_true")
@@ -132,10 +150,6 @@ class MonodepthOptions:
                                  help="normal or shared",
                                  default="separate_resnet",
                                  choices=["posecnn", "separate_resnet", "shared"])
-        self.parser.add_argument("--dpt",
-                                 help="depth encoder and decoder replace with dpt",
-                                 action="store_true")
-
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
@@ -154,13 +168,13 @@ class MonodepthOptions:
                                  nargs="+",
                                  type=str,
                                  help="models to load",
-                                 default=["encoder", "depth", "pose_encoder", "pose"])
+                                 default=["position_encoder", "position"])
 
         # LOGGING options
         self.parser.add_argument("--log_frequency",
                                  type=int,
                                  help="number of batches between each tensorboard log",
-                                 default=250)
+                                 default=200)
         self.parser.add_argument("--save_frequency",
                                  type=int,
                                  help="number of epochs between each save",
@@ -185,7 +199,7 @@ class MonodepthOptions:
                                  help="optional path to a .npy disparities file to evaluate")
         self.parser.add_argument("--eval_split",
                                  type=str,
-                                 default="eigen",
+                                 default="endovis",
                                  choices=[
                                     "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis"],
                                  help="which split to run eval on")
