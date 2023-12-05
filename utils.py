@@ -1,9 +1,3 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
-
 from __future__ import absolute_import, division, print_function
 import os
 import hashlib
@@ -96,20 +90,19 @@ def download_model_if_doesnt_exist(model_name):
 
     # see if we have the model already downloaded...
     if not os.path.exists(os.path.join(model_path, "encoder.pth")):
-        
-        if model_name in download_paths.keys():
-            model_url, required_md5checksum = download_paths[model_name]
 
-            if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
-                print("-> Downloading pretrained model to {}".format(model_path + ".zip"))
-                urllib.request.urlretrieve(model_url, model_path + ".zip")
+        model_url, required_md5checksum = download_paths[model_name]
 
-            if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
-                print("   Failed to download a file which matches the checksum - quitting")
-                quit()
+        if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
+            print("-> Downloading pretrained model to {}".format(model_path + ".zip"))
+            urllib.request.urlretrieve(model_url, model_path + ".zip")
 
-            print("   Unzipping model...")
-            with zipfile.ZipFile(model_path + ".zip", 'r') as f:
-                f.extractall(model_path)
+        if not check_file_matches_md5(required_md5checksum, model_path + ".zip"):
+            print("   Failed to download a file which matches the checksum - quitting")
+            quit()
 
-            print("   Model unzipped to {}".format(model_path))
+        print("   Unzipping model...")
+        with zipfile.ZipFile(model_path + ".zip", 'r') as f:
+            f.extractall(model_path)
+
+        print("   Model unzipped to {}".format(model_path))

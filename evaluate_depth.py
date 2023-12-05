@@ -75,13 +75,11 @@ def evaluate(opt):
 
         print("-> Loading weights from {}".format(opt.load_weights_folder))
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files_sequence2.txt"))
+        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
-        encoder_dict = torch.load(encoder_path, map_location=device)
+        encoder_dict = torch.load(encoder_path)
 
         dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
@@ -96,11 +94,11 @@ def evaluate(opt):
 
         model_dict = encoder.state_dict()
         encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-        depth_decoder.load_state_dict(torch.load(decoder_path, map_location=device))
+        depth_decoder.load_state_dict(torch.load(decoder_path))
 
-        encoder.to(device)
+        encoder.cuda()
         encoder.eval()
-        depth_decoder.to(device)
+        depth_decoder.cuda()
         depth_decoder.eval()
 
         pred_disps = []
@@ -110,7 +108,7 @@ def evaluate(opt):
 
         with torch.no_grad():
             for data in dataloader:
-                input_color = data[("color", 0, 0)].to(device)
+                input_color = data[("color", 0, 0)].cuda()
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
