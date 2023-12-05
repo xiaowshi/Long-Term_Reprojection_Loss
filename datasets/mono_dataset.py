@@ -1,9 +1,3 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
-
 from __future__ import absolute_import, division, print_function
 
 import os
@@ -11,11 +5,13 @@ import random
 import numpy as np
 import copy
 from PIL import Image  # using pillow-simd for increased speed
+from PIL import ImageFile
 
 import torch
 import torch.utils.data as data
 from torchvision import transforms
 
+ImageFile.LOAD_TRUNCATED_IMAGES=True
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning
@@ -71,7 +67,7 @@ class MonoDataset(data.Dataset):
             self.contrast = (0.8, 1.2)
             self.saturation = (0.8, 1.2)
             self.hue = (-0.1, 0.1)
-            transforms.ColorJitter.get_params(
+            transforms.ColorJitter(
                 self.brightness, self.contrast, self.saturation, self.hue)
         except TypeError:
             self.brightness = 0.2
@@ -84,7 +80,6 @@ class MonoDataset(data.Dataset):
             s = 2 ** i
             self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                                                interpolation=self.interp)
-
         self.load_depth = self.check_depth()
 
     def preprocess(self, inputs, color_aug):
@@ -157,15 +152,17 @@ class MonoDataset(data.Dataset):
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+                # inputs[("path", i, -1)] =  self.get_image_path(folder, frame_index, other_side)
             else:
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+                # inputs[("path", i, -1)] =  self.get_image_path(folder, frame_index + i, side)
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
             K = self.K.copy()
-
             K[0, :] *= self.width // (2 ** scale)
             K[1, :] *= self.height // (2 ** scale)
+
 
             inv_K = np.linalg.pinv(K)
 
@@ -173,15 +170,12 @@ class MonoDataset(data.Dataset):
             inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
 
         if do_color_aug:
-#             color_aug = transforms.ColorJitter.get_params(
-#                 self.brightness, self.contrast, self.saturation, self.hue)
             color_aug = transforms.ColorJitter(
                 self.brightness, self.contrast, self.saturation, self.hue)
         else:
             color_aug = (lambda x: x)
 
         self.preprocess(inputs, color_aug)
-
         for i in self.frame_idxs:
             del inputs[("color", i, -1)]
             del inputs[("color_aug", i, -1)]
@@ -198,7 +192,6 @@ class MonoDataset(data.Dataset):
             stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
-
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
