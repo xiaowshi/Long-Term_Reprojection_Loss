@@ -15,7 +15,7 @@ from layers import *
 
 
 class DepthDecoder(nn.Module):
-    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True):
+    def __init__(self, num_ch_enc, scales= range(4), num_output_channels=1, use_skips=True):
         super(DepthDecoder, self).__init__()
 
         self.num_output_channels = num_output_channels
@@ -27,7 +27,7 @@ class DepthDecoder(nn.Module):
         self.num_ch_dec = np.array([16, 32, 64, 128, 256])
 
         # decoder
-        self.convs = OrderedDict()
+        self.convs = OrderedDict() # 有序字典
         for i in range(4, -1, -1):
             # upconv_0
             num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
@@ -49,7 +49,6 @@ class DepthDecoder(nn.Module):
 
     def forward(self, input_features):
         self.outputs = {}
-
         # decoder
         x = input_features[-1]
         for i in range(4, -1, -1):

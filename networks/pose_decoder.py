@@ -1,9 +1,3 @@
-# Copyright Niantic 2019. Patent Pending. All rights reserved.
-#
-# This software is licensed under the terms of the Monodepth2 licence
-# which allows for non-commercial use only, the full terms of which are made
-# available in the LICENSE file.
-
 from __future__ import absolute_import, division, print_function
 
 import torch
@@ -46,7 +40,7 @@ class PoseDecoder(nn.Module):
 
         out = out.mean(3).mean(2)
 
-        out = 0.01 * out.view(-1, self.num_frames_to_predict_for, 1, 6)
+        out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
 
         axisangle = out[..., :3]
         translation = out[..., 3:]
