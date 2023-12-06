@@ -43,8 +43,7 @@ CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_p
 
 ## Colab Demos
 
-- [Colab 1: Dataloader] (data_preprocess.ipynb): Visualise output of the dataloader.
-- [Colab 2: Evaluation] (depth_prediction_example.ipynb): Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
+- [Colab] (Long_Term_Reprojection_Loss.ipynb): Visualise the output of the dataloader. Calculate the depth and pose metrics and visualise trajectory using pretrained weights.
 
 <p float="left">
 <img src="assets/img/input-min.gif" width="200"/>
