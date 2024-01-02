@@ -21,7 +21,7 @@ ffmpeg -i /path/to/crop_rgb.mp4 %6d.jpg
 
 ## Training
 ```shell
-CUDA_VISIBLE_DEVICES=1 python train.py --data_path <path/to/SCARED/> --log_dir <path/to/save/weights>  --batch_size 20 --frames_ids -2 -1 0 1 2
+CUDA_VISIBLE_DEVICES=1 python train.py --data_path <path/to/SCARED/> --log_dir <path/to/save/weights>  --batch_size 20 --frames_ids 0 -1 1 -2 2
 ```
 
 ## Validation
