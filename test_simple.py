@@ -14,21 +14,18 @@ from torchvision import transforms, datasets
 
 import networks
 from layers import disp_to_depth
-from utils import download_model_if_doesnt_exist
-from transformers import DPTFeatureExtractor, DPTForDepthEstimation
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Simple testing funtion for Monodepthv2 models.')
-    parser.add_argument("--dpt",
-                        help="depth encoder and decoder replace with dpt",
-                        action="store_true")
+
     parser.add_argument('--image_path', type=str,
                         help='path to a test image or folder of images', required=True)
     parser.add_argument('--model_path', type=str,
-                        help='path to the test model', required=False)
+                        help='path to the test model', required=True)
     parser.add_argument('--ext', type=str,
-                        help='image extension to search for in folder', default="jpg")
+                        help='image extension to search for in folder', default="png")
     parser.add_argument("--no_cuda",
                         help='if set, disables CUDA',
                         action='store_true')
@@ -45,36 +42,30 @@ def test_simple(args):
         device = torch.device("cpu")
 
     model_path = args.model_path
-    if model_path is not None: 
-        print("-> Loading model from ", model_path)
-        encoder_path = os.path.join(model_path, "encoder.pth")
-        depth_decoder_path = os.path.join(model_path, "depth.pth")
+
+    print("-> Loading model from ", model_path)
+    encoder_path = os.path.join(model_path, "encoder.pth")
+    depth_decoder_path = os.path.join(model_path, "depth.pth")
 
     # LOADING PRETRAINED MODEL
-    if args.dpt:   	
-        extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-large")
-    else:
-        print("   Loading pretrained encoder")
-        encoder = networks.ResnetEncoder(18, False)
-        loaded_dict_enc = torch.load(encoder_path, map_location=device)
+    print("   Loading pretrained encoder")
+    encoder = networks.ResnetEncoder(18, False)
+    loaded_dict_enc = torch.load(encoder_path, map_location=device)
 
-        # extract the height and width of image that this model was trained with
-        feed_height = loaded_dict_enc['height']
-        feed_width = loaded_dict_enc['width']
-        filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
+    # extract the height and width of image that this model was trained with
+    feed_height = loaded_dict_enc['height']
+    feed_width = loaded_dict_enc['width']
+    filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
 
-        encoder.load_state_dict(filtered_dict_enc)
-        encoder.to(device)
-        encoder.eval()
+    encoder.load_state_dict(filtered_dict_enc)
+    encoder.to(device)
+    encoder.eval()
 
     print("   Loading pretrained decoder")
-    if args.dpt: 
-        depth_decoder = DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
-    else:
-    	  depth_decoder = networks.DepthDecoder(num_ch_enc=encoder.num_ch_enc, scales=range(4))
-    if args.model_path is not None:
-        loaded_dict = torch.load(depth_decoder_path, map_location=device)
-        depth_decoder.load_state_dict({k:v for k,v in loaded_dict.items() if k in depth_decoder.state_dict()})
+    depth_decoder = networks.DepthDecoder(num_ch_enc=encoder.num_ch_enc, scales=range(4))
+
+    loaded_dict = torch.load(depth_decoder_path, map_location=device)
+    depth_decoder.load_state_dict(loaded_dict)
 
     depth_decoder.to(device)
     depth_decoder.eval()
@@ -97,32 +88,22 @@ def test_simple(args):
     with torch.no_grad():
         for idx, image_path in enumerate(paths):
 
-            if image_path.endswith("_disp.jpg") or image_path.endswith(".tiff") or image_path.endswith(".npy"):
+            if image_path.endswith("_disp.jpg"):
                 # don't try to predict disparity for a disparity image!
                 continue
 
             # Load image and preprocess
             input_image = pil.open(image_path).convert('RGB')
+
             original_width, original_height = input_image.size
-            if not args.dpt:
-                input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
-                input_image = transforms.ToTensor()(input_image).unsqueeze(0)
+            input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
+            input_image = transforms.ToTensor()(input_image).unsqueeze(0)
 
             # PREDICTION
-            if args.dpt:
-                encoding = extractor(input_image, return_tensors="pt")
-                output = depth_decoder(encoding['pixel_values'].to(device))
-                output = torch.nn.functional.interpolate(
-                          output.predicted_depth.unsqueeze(1),
-                          size=(original_height, original_width),
-                          mode="bicubic",
-                          align_corners=False,
-                )
-                outputs = {('disp', 0): output}
-            else:
-                input_image = input_image.to(device)
-                features = encoder(input_image)
-                outputs = depth_decoder(features)
+            input_image = input_image.to(device)
+            features = encoder(input_image)
+            outputs = depth_decoder(features)
+
             disp = outputs[("disp", 0)]
             disp_resized = torch.nn.functional.interpolate(
                 disp, (original_height * 2, original_width * 2), mode="bilinear", align_corners=False)
@@ -136,19 +117,20 @@ def test_simple(args):
             # Saving colormapped depth image
             disp_resized_np = disp_resized.squeeze().cpu().numpy()
             vmax = np.percentile(disp_resized_np, 95)
-            normalizer = mpl.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
-            mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
+
+            normalizer = mpl.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax) # 归一化到0-1
+            mapper = cm.ScalarMappable(norm=normalizer, cmap='magma') # colormap
             colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(np.uint8)
+
             im = pil.fromarray(colormapped_im)
-            model = "dpt" if args.dpt else "mono"
-            name_dest_im = os.path.join(output_directory, "{}_{}_disp.jpeg".format(output_name, model))
+
+            name_dest_im = os.path.join(output_directory, "{}.jpeg".format(output_name))
             im.save(name_dest_im, quality=95)
 
             print("   Processed {:d} of {:d} images - saved prediction to {}".format(
-                idx + 1, len(paths), name_dest_im), 
-                "   direct output range: ", disp.min(), disp.max())
+                idx + 1, len(paths), name_dest_im))
 
-    print('-> Done!')
+    print('->p Done!')
 
 
 if __name__ == '__main__':

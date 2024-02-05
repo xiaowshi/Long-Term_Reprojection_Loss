@@ -10,7 +10,7 @@ from layers import transformation_from_parameters
 from utils import readlines
 from options import MonodepthOptions
 from datasets import SCAREDRAWDataset
-from visualize_pose import visualize
+
 
 # from https://github.com/tinghuiz/SfMLearner
 def dump_xyz(source_to_target_transformations):
@@ -82,21 +82,15 @@ def evaluate(opt):
                                [0, 1], 4, is_train=False)
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
                             num_workers=opt.num_workers, pin_memory=True, drop_last=False)
-    print("total samples: ",len(dataset))
-    print("batch size: ",opt.batch_size)
-    print("number of batch / epoch: ", len(dataloader))
+
     pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
     pose_decoder_path = os.path.join(opt.load_weights_folder, "pose.pth")
 
     pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
-    # print('bef:', pose_encoder.encoder.conv1.weight[0,0,0])
     pose_encoder.load_state_dict(torch.load(pose_encoder_path))
-    # print('aft:', pose_encoder.encoder.conv1.weight[0,0,0])
 
     pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
-    # print('bef', pose_decoder.net[0].weight[0,0:10])
     pose_decoder.load_state_dict(torch.load(pose_decoder_path))
-    # print('aft', pose_decoder.net[0].weight[0,0:10])
 
     pose_encoder.cuda()
     pose_encoder.eval()
@@ -112,26 +106,21 @@ def evaluate(opt):
     with torch.no_grad():
         for inputs in dataloader:
             for key, ipt in inputs.items():
-                # print(inputs[key])
                 inputs[key] = ipt.cuda()
 
             all_color_aug = torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1)
 
             features = [pose_encoder(all_color_aug)]
             axisangle, translation = pose_decoder(features)
-            # print('inputs:', inputs['K',0].shape, inputs['K',0][0])
-            # print('inputs[color,0,0]:', inputs['color',0,0].shape, inputs['color',0,0][0,0,0,0:10])
-            # print('feature',features[0][0].shape, features[0][0].sum())
-            
+
             pred_poses.append(
                 transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
-            # break
 
     pred_poses = np.concatenate(pred_poses)
-    np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq2.npz"), data=np.array(pred_poses))
 
     gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq2.npz")
     gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+
     ates = []
     res = []
     num_frames = gt_local_poses.shape[0]
@@ -147,19 +136,7 @@ def evaluate(opt):
 
     print("\n   Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
     print("\n   Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
-    # print('keys', inputs.keys())
 
-    # import cv2
-    # import matplotlib.pyplot as plt
-    # print('sum:', inputs['color',0,0][0].permute(1,2,0).sum(), inputs['color',0,0][0].shape)
-    # img = inputs['color',0,0][0].permute(1,2,0).cpu()*255
-    # img = img.numpy().astype(np.uint8)
-    # # plt.imshow(img)
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # cv2.imwrite('test.png',img.astype(np.uint8))
-    # print(img.max(), img.min())
-    
-    visualize(opt.load_weights_folder[-2:])
 
 if __name__ == "__main__":
     options = MonodepthOptions()
