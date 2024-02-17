@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=1 python evaluate_pose.py --data_path <path/to/SCARED/> --e
 ## Testing
 | Model        | Abs Rel | Sq Rel | RMSE | RMSE log | Link |
 | ------------ | ---------- | ------ | --------- | ---- | ---- |
-| Results | 0.071 | 0.596 | 5.608 | 0.095 | [google drive](https://drive.google.com/file/d/1t1J5kvPk5c9QODHmcubzkIU7khKkHbdu/view?usp=sharing)| 
+| Results | 0.058 | 0.452 | 5.014 | 0.083 | [google drive](https://drive.google.com/file/d/1t1J5kvPk5c9QODHmcubzkIU7khKkHbdu/view?usp=sharing)| 
 
 ```shell
 CUDA_VISIBLE_DEVICES=1 python test_simple.py --model_path <model_path> --image_path <image_path>
