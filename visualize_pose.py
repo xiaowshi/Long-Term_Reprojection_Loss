@@ -6,10 +6,10 @@ import numpy as np
 
 # load data from file
 # you replace this using with open
-gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "gt_poses.npz")
+gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis","gt_poses_sq2.npz")
 gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
-our_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "pose_our.npz")
+our_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq2.npz")
 our_local_poses = np.load(our_path, fix_imports=True, encoding='latin1')["data"]
 
 
@@ -52,8 +52,8 @@ points_gt = np.array(points_gt)
 
 # new a figure and set it into 3d
 fig = plt.figure()
-ax = fig.gca(projection='3d')
-
+# ax = fig.gca(projection='3d')
+ax = fig.add_subplot(projection = '3d')
 # set figure information
 # ax.set_title("3D_Curve")
 ax.set_xlabel("x [mm]")
